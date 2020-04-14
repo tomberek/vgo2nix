@@ -19,6 +19,7 @@ type Package struct {
 	GoPackagePath string
 	URL           string
 	Rev           string
+	Ref           string
 	Sha256        string
 }
 
@@ -30,6 +31,7 @@ type PackageResult struct {
 type modEntry struct {
 	importPath string
 	rev        string
+	ref        string
 }
 
 const depNixFormat = `  {
@@ -38,6 +40,7 @@ const depNixFormat = `  {
       type = "%s";
       url = "%s";
       rev = "%s";
+      ref = "%s";
       sha256 = "%s";
     };
   }`
@@ -48,6 +51,7 @@ func getModules() ([]*modEntry, error) {
 	commitShaRev := regexp.MustCompile(`^v\d+\.\d+\.\d+-(?:\d+\.)?[0-9]{14}-(.*?)$`)
 	commitRevV2 := regexp.MustCompile("^v.*-(.{12})\\+incompatible$")
 	commitRevV3 := regexp.MustCompile(`^(v\d+\.\d+\.\d+)\+incompatible$`)
+	commitRef := regexp.MustCompile(`^(v\d+\.\d+\.\d+).*$`)
 
 	var stderr bytes.Buffer
 	cmd := exec.Command("go", "list", "-json", "-m", "all")
@@ -98,10 +102,15 @@ func getModules() ([]*modEntry, error) {
 		} else if commitRevV3.MatchString(rev) {
 			rev = commitRevV3.FindAllStringSubmatch(rev, -1)[0][1]
 		}
-		fmt.Println(fmt.Sprintf("goPackagePath %s has rev %s", mod.Path, rev))
+		ref := "master"
+		if commitRef.MatchString(rev) {
+			ref = commitRef.FindAllStringSubmatch(rev, -1)[0][1]
+		}
+		fmt.Println(fmt.Sprintf("goPackagePath %s has rev %s and ref %s", mod.Path, rev, ref))
 		entries = append(entries, &modEntry{
 			importPath: mod.Path,
 			rev:        rev,
+			ref:        ref,
 		})
 	}
 
@@ -176,6 +185,7 @@ func getPackages(keepGoing bool, numJobs int, prevDeps map[string]*Package, urlP
 			GoPackagePath: repoRoot.Root,
 			URL:           repoRoot.Repo,
 			Rev:           rev,
+			Ref:           entry.ref,
 			Sha256:        sha256,
 		}, nil
 	}
@@ -301,7 +311,7 @@ func main() {
 	for _, pkg := range packages {
 		write(fmt.Sprintf(depNixFormat,
 			pkg.GoPackagePath, "git", pkg.URL,
-			pkg.Rev, pkg.Sha256))
+			pkg.Rev, pkg.Ref, pkg.Sha256))
 	}
 	write("]")
 
